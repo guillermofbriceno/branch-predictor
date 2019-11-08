@@ -18,7 +18,7 @@ class StateCounter:
         self.state += 1
 
     def was_not_taken(self):
-        if (self.state - 1) < 0:
+        if self.state == 0:
             return
         self.state -= 1
 
@@ -50,19 +50,24 @@ class BranchPredictor:
         self.pattern_history_table = [StateCounter(num_state_bits, init_state_val) 
                 for i in range(pht_size)]
 
+        self.num_state_bits = num_state_bits
+        self.init_state_val = init_state_val
+        self.pht_size = pht_size
         self.mispredictions = 0
         self.good_predictions = 0
         self.no_predictions = 0
 
     def print_stats(self):
-        print("\n\n\n\t---Sim Result---")
         total = self.no_predictions + self.good_predictions + self.mispredictions
+        print("\n\n\n\t\t---Sim Result---")
+        print("Type\t", "Counter Bits\t", "Counter init\t","PHT entries")
+        print(self.get_method_type(), "\t", self.num_state_bits, "\t\t", self.init_state_val,"\t\t", self.pht_size, "\n")
         print("Mispredictions:\t\t", self.mispredictions)
         print("No Predictions:\t\t", self.no_predictions)
         print("Hit Predictions:\t", self.good_predictions)
         print("Total:\t\t\t", total)
         print("Hit rate:\t\t", '{0:.04f}'.format(self.good_predictions / (total - self.no_predictions) * 100), "%")
-        print("")
+        print("Miss rate:\t\t", '{0:.04f}'.format(self.mispredictions / total * 100), "%\n")
 
     def predict(self, pc, actual_branch):
         cutpc = get_from_bitrange(self.cut_pc, pc)
@@ -78,6 +83,9 @@ class BranchPredictor:
 
     def prediction_method(self, cutpc, actual_branch):
         pass
+    
+    def get_method_type(self):
+        return type(self).__name__.rstrip()
 
 class OneLevel(BranchPredictor):
     def __init__(self, num_state_bits, init_state_val, pht_size):
@@ -130,7 +138,6 @@ class GShare(TwoLevelGlobal):
         print("Current values in global history reg:\t", self.global_branch_history.register)
         print("Value of global history reg:\t\t", self.global_branch_history.get_current_val())
 
-#Have to get first n bits pc address for local history register addressing, not cutpc
 class TwoLevelLocal(BranchPredictor):
     def __init__(self, num_state_bits, init_state_val, pht_size):
         super().__init__(num_state_bits, init_state_val, pht_size)
@@ -140,7 +147,6 @@ class TwoLevelLocal(BranchPredictor):
 
         self.reg_table_numbits = math.frexp(self.local_hist_reg_table_size)[1] - 1
         self.cut_pc = [32, 32 - self.reg_table_numbits]
-        #self.cut_pc = [self.reg_table_numbits + 10, 10]
 
         self.local_hist_reg_table = [ShiftRegister(self.g_hist_reg_width) 
                 for i in range(self.local_hist_reg_table_size)]
@@ -185,7 +191,6 @@ def main():
             'two-level-local':  TwoLevelLocal
             }
 
-    #bp = methods[args.method](2, 0, 1024)
     bp = methods[args.method](args.cbits, args.cinit, args.phtsize)
 
     with open(args.trace) as trace:
