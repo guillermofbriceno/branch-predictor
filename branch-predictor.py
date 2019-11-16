@@ -51,6 +51,9 @@ class ShiftRegister:
 
     def get_current_val(self):
         return int("".join(map(str, self.register)), 2)
+    
+    def get_current_val_as_binstr(self):
+        return str("".join(map(str, self.register)))
 
 class BranchPredictor:
     def __init__(self, num_state_bits, init_state_val, pht_size):
@@ -198,20 +201,85 @@ class TournamentPredictor:
 class TAGEPredictor:
     def __init__(self, num_state_bits, init_state_val, num_entries):
         base_predictor = OneLevel(num_state_bits, init_state_val, num_entries)
-        tagged_predictors = [TaggedTable(num_state_bits, init_state_val, 9, num_entries)
-                for i in range(4)]
-        # Predictor Components, Ti
-        self.T = [base_predictor,  tagged_predictors[0], tagged_predictors[1],
+
+        # Init tagged predictors specifying history lengths as geometric series
+        tagged_predictors = []
+        a = 10
+        for i in range (4):
+            tagged_predictors.append(TaggedTable(num_state_bits, init_state_val, 10, num_entries, a))
+            a = a * 2
+
+        self.T = [base_predictor,  tagged_predictors[0], tagged_predictors[1], #Predictor components, Ti
                                    tagged_predictors[2], tagged_predictors[3]]
 
+        self.global_history_register = ShiftRegister(80)
         init_basic_vars(self, num_state_bits, init_state_val, num_entries)
 
+    def predict(self, pc, actual_branch):
+        predictions = []
+        for i in range(5):
+            predictions.append(self.T[i].predict(pc, actual_branch))
+
+
 class TaggedTable:
-    def __init__(self, num_state_bits, init_state_val, tag_width, num_entries):
+    def __init__(self, num_state_bits, init_state_val, num_entries):
+        self.hist_size = 10
+        self.tag_width = 8
+
         self.counters = [PredictorCounter(num_state_bits, init_state_val)
                 for i in range(num_entries)]
         self.tags = [0 for i in range(num_entries)]
         self.useful_bits = [StateCounter(2, 0) for i in  range(num_entries)]
+
+        self.entries_numbits = math.frexp(num_entries)[1] - 1 
+        self.cut_index_pc = [self.entries_numbits + offset, offset]
+
+    def predict(self, pc, actual_branch):
+        index = get_from_bitrange(self.cut_index_pc, pc)
+        prediction = self.counters[index].get_state()
+
+        if actual_branch == 1:
+            self.counter[index].was_taken()
+        else:
+            self.counter[index].was_not_taken()
+
+        if prediction == actual_branch:
+            self.useful_bits[index].was_taken()
+        elif prediction is not None:
+            self.useful_bits[index].was_not_taken()
+
+
+        return prediction
+
+    def get_tag(self, pc):
+        index = get_from_bitrange(self.cut_index_pc, pc)
+        return self.tags[index]
+
+def index_tag_hash(pc, ghr_binstr, comp):
+    index_pc = get_from_bitrange([10,0], pc) ^ get_from_bitrange([20,10], pc)
+    index_ghr = binstr_get_from_bitrange([10,0],ghr_binstr)
+
+    tag_pc = get_from_bitrange([8,0], pc)
+    tag_R1 = binstr_get_from_bitrange([8,0], ghr_binstr)
+    tag_R2 = binstr_get_from_bitrange([7,0], ghr_binstr)
+
+    for i in range(1, 2**(comp - 1)):
+        index_ghr ^= binstr_get_from_bitrange([(i+1)*10,i*10],ghr_binstr)
+        print("one")
+
+    for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 8) ) ):
+        tag_R1 ^= binstr_get_from_bitrange([(i+1)*8,i*8],ghr_binstr)
+        print("two")
+
+    for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 7) ) ):
+        tag_R2 ^= binstr_get_from_bitrange([(i+1)*7,i*7],ghr_binstr)
+        print("three")
+
+    index = index_pc ^ index_ghr
+    tag = tag_pc ^ tag_R1 ^ (tag_R2 << 1)
+
+    return [index, tag]
+
 
 def mux2(x, y, s):
     return x if s is 0 else y
@@ -248,7 +316,23 @@ def get_from_bitrange(bit_range, dec_val):
     cut_string = binary_string[left_bit:right_bit]
     return 0 if left_bit == right_bit else int(cut_string, 2)
 
+def binstr_get_from_bitrange(bit_range, binary_string):
+    left_bit, right_bit = bit_range
+    left_bit = len(binary_string) - left_bit
+    right_bit = len(binary_string) - right_bit
+    cut_string = binary_string[left_bit:right_bit]
+    return 0 if left_bit == right_bit else int(cut_string, 2)
+
 def main():
+
+    #pc = 135051251
+    #ghr_binstr = "10110101011011011101101101010100111101010011010111111101010100111101011111111101"
+    #intag = index_tag_hash(pc, ghr_binstr, 1)
+    #print(intag[0])
+    #print(intag[1])
+
+
+
     parser = argparse.ArgumentParser()
     parser.add_argument("-method", help="Prediction method", choices=[ 
         'one-level','two-level-global','gshare','two-level-local', 'tournament'],required=True)
