@@ -23,12 +23,23 @@ class StateCounter:
         self.state -= 1
 
     def get_state(self):
+        if self.state >= (self.max_val / 2):
+            return 1
+        else:
+            return 0
+
+class PredictorCounter(StateCounter):
+    def __init__(self, bits, init_value):
+        super().__init__(bits, init_value)
+
+    def get_state(self):
         if self.state > (self.max_val / 2):
             return 1    # Taken
         if self.state < ((self.max_val / 2) - 1):
             return 0    # Not Taken
         else:
             return None # No Prediction (Weak)
+
 
 class ShiftRegister:
     def __init__(self, bits):
@@ -57,18 +68,6 @@ class BranchPredictor:
         self.good_predictions = 0
         self.no_predictions = 0
 
-    def print_stats(self):
-        total = self.no_predictions + self.good_predictions + self.mispredictions
-        print("\n\n\n\t\t---Sim Result---")
-        print("Type\t", "Counter Bits\t", "Counter init\t","PHT entries")
-        print(self.get_method_type(), "\t", self.num_state_bits, "\t\t", self.init_state_val,"\t\t", self.pht_size, "\n")
-        print("Mispredictions:\t\t", self.mispredictions)
-        print("No Predictions:\t\t", self.no_predictions)
-        print("Hit Predictions:\t", self.good_predictions)
-        print("Total:\t\t\t", total)
-        print("Hit rate:\t\t", '{0:.04f}'.format(self.good_predictions / (total - self.no_predictions) * 100), "%")
-        print("Miss rate:\t\t", '{0:.04f}'.format(self.mispredictions / total * 100), "%\n")
-
     def predict(self, pc, actual_branch):
         cutpc = get_from_bitrange(self.cut_pc, pc)
 
@@ -80,6 +79,8 @@ class BranchPredictor:
             self.mispredictions += 1
         if prediction is None:
             self.no_predictions += 1
+
+        return prediction
 
     def prediction_method(self, cutpc, actual_branch):
         pass
@@ -163,6 +164,86 @@ class TwoLevelLocal(BranchPredictor):
         
         return prediction
 
+class TournamentPredictor:
+    def __init__(self, num_state_bits, init_state_val, pht_size):
+        offset = 0
+        self.pht_numbits = math.frexp(pht_size)[1] - 1
+        self.cut_pc = [self.pht_numbits + offset, offset]
+
+        gshare_predictor = GShare(num_state_bits, init_state_val, pht_size)
+        one_level_predictor = OneLevel(num_state_bits, init_state_val, pht_size)
+        self.predictors = [gshare_predictor, one_level_predictor]
+        self.meta_predictor = [StateCounter(num_state_bits, init_state_val)
+                for i in range(pht_size)]
+
+        self.num_state_bits = num_state_bits
+        self.init_state_val = init_state_val
+        self.pht_size = pht_size
+        self.mispredictions = 0
+        self.good_predictions = 0
+        self.no_predictions = 0
+
+    def predict(self, pc, actual_branch):
+        cutpc = get_from_bitrange(self.cut_pc, pc)
+        choosen_predictor = self.meta_predictor[cutpc].get_state()
+        if choosen_predictor is None:
+            choosen_predictor = 1
+        predictions = [self.predictors[0].predict(pc, actual_branch), self.predictors[1].predict(pc, actual_branch)]
+        chosen_prediction = predictions[choosen_predictor]
+
+        if chosen_prediction == actual_branch:
+            self.good_predictions += 1
+        elif chosen_prediction is not None:
+            self.mispredictions += 1
+        elif chosen_prediction is None:
+            self.no_predictions += 1
+
+        if (predictions[0] == predictions[1]):
+            pass
+        elif (predictions[0] == actual_branch):
+            self.meta_predictor[cutpc].was_not_taken()
+        elif (predictions[1] == actual_branch):
+            self.meta_predictor[cutpc].was_taken()
+
+        #print(predictions)
+        #print(chosen_prediction)
+        #print(actual_branch)
+        #print("")
+
+    def get_method_type(self):
+        print(self.predictors[0].good_predictions)
+        print(self.predictors[1].good_predictions)
+        return type(self).__name__.rstrip()
+
+class TAGEPredictor:
+    def __init__(self, num_state_bits, init_state_val, pht_size):
+        base_predictor = OneLevel(num_state_bits, init_state_val, pht_size)
+        self.predictor_components = []
+
+class TaggedTable:
+    def __init__(self, num_state_bits, init_state_val, tag_width, num_entries):
+        self.counters = [StateCounter(num_state_bits, init_state_val)
+                for i in range(num_entries)]
+        self.tags = [0 for i in range(num_entries)]
+        self.useful_bits = [StateCounter()]
+
+
+def mux2(x, y, s):
+    return x if s is 0 else y
+
+def print_stats(predictor):
+        total = predictor.no_predictions + predictor.good_predictions + predictor.mispredictions
+        print("\n\n\n\t\t---Sim Result---")
+        print("Type\t\t", "Counter Bits\t", "Counter init\t","PHT entries")
+        print(predictor.get_method_type(), "\t", predictor.num_state_bits, "\t\t", predictor.init_state_val,"\t\t", predictor.pht_size, "\n")
+        print("Mispredictions:\t\t", predictor.mispredictions)
+        print("No Predictions:\t\t", predictor.no_predictions)
+        print("Hit Predictions:\t", predictor.good_predictions)
+        print("Total:\t\t\t", total)
+        #print("Hit rate:\t\t", '{0:.04f}'.format(self.good_predictions / (total - self.no_predictions) * 100), "%")
+        print("Hit rate:\t\t", '{0:.04f}'.format(predictor.good_predictions / (total) * 100), "%")
+        print("Miss rate:\t\t", '{0:.04f}'.format(predictor.mispredictions / total * 100), "%\n")
+
 def norm_branch(branch):
     return 1 if branch.rstrip() is 'T' else 0
 
@@ -177,7 +258,7 @@ def get_from_bitrange(bit_range, dec_val):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-method", help="Prediction method", choices=[ 
-        'one-level','two-level-global','gshare','two-level-local'],required=True)
+        'one-level','two-level-global','gshare','two-level-local', 'tournament'],required=True)
     parser.add_argument("-cbits", help="How many bits for the state counters",default=2,type=int,required=False)
     parser.add_argument("-cinit", help="Initial state counter value",default=0,type=int,required=False)
     parser.add_argument("-phtsize", help="Number of pattern history table entries",type=int,required=True)
@@ -188,7 +269,8 @@ def main():
             'one-level':        OneLevel,
             'two-level-global': TwoLevelGlobal,
             'gshare':           GShare,
-            'two-level-local':  TwoLevelLocal
+            'two-level-local':  TwoLevelLocal,
+            'tournament':       TournamentPredictor
             }
 
     bp = methods[args.method](args.cbits, args.cinit, args.phtsize)
@@ -205,7 +287,7 @@ def main():
             pc, branch = request.split(" ")
             bp.predict(pc, norm_branch(branch))
 
-    bp.print_stats()
+    print_stats(bp)
     #bp.print_debug_stats()
 
 if __name__ == "__main__":
