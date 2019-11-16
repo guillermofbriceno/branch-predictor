@@ -40,7 +40,6 @@ class PredictorCounter(StateCounter):
         else:
             return None # No Prediction (Weak)
 
-
 class ShiftRegister:
     def __init__(self, bits):
         self.max_bits = bits
@@ -58,15 +57,10 @@ class BranchPredictor:
         offset = 0
         self.pht_numbits = math.frexp(pht_size)[1] - 1
         self.cut_pc = [self.pht_numbits + offset, offset]
-        self.pattern_history_table = [StateCounter(num_state_bits, init_state_val) 
+        self.pattern_history_table = [PredictorCounter(num_state_bits, init_state_val) 
                 for i in range(pht_size)]
 
-        self.num_state_bits = num_state_bits
-        self.init_state_val = init_state_val
-        self.pht_size = pht_size
-        self.mispredictions = 0
-        self.good_predictions = 0
-        self.no_predictions = 0
+        init_basic_vars(self, num_state_bits, init_state_val, pht_size)
 
     def predict(self, pc, actual_branch):
         cutpc = get_from_bitrange(self.cut_pc, pc)
@@ -176,18 +170,11 @@ class TournamentPredictor:
         self.meta_predictor = [StateCounter(num_state_bits, init_state_val)
                 for i in range(pht_size)]
 
-        self.num_state_bits = num_state_bits
-        self.init_state_val = init_state_val
-        self.pht_size = pht_size
-        self.mispredictions = 0
-        self.good_predictions = 0
-        self.no_predictions = 0
+        init_basic_vars(self, num_state_bits, init_state_val, pht_size)
 
     def predict(self, pc, actual_branch):
         cutpc = get_from_bitrange(self.cut_pc, pc)
         choosen_predictor = self.meta_predictor[cutpc].get_state()
-        if choosen_predictor is None:
-            choosen_predictor = 1
         predictions = [self.predictors[0].predict(pc, actual_branch), self.predictors[1].predict(pc, actual_branch)]
         chosen_prediction = predictions[choosen_predictor]
 
@@ -205,28 +192,26 @@ class TournamentPredictor:
         elif (predictions[1] == actual_branch):
             self.meta_predictor[cutpc].was_taken()
 
-        #print(predictions)
-        #print(chosen_prediction)
-        #print(actual_branch)
-        #print("")
-
     def get_method_type(self):
-        print(self.predictors[0].good_predictions)
-        print(self.predictors[1].good_predictions)
         return type(self).__name__.rstrip()
 
 class TAGEPredictor:
-    def __init__(self, num_state_bits, init_state_val, pht_size):
-        base_predictor = OneLevel(num_state_bits, init_state_val, pht_size)
-        self.predictor_components = []
+    def __init__(self, num_state_bits, init_state_val, num_entries):
+        base_predictor = OneLevel(num_state_bits, init_state_val, num_entries)
+        tagged_predictors = [TaggedTable(num_state_bits, init_state_val, 9, num_entries)
+                for i in range(4)]
+        # Predictor Components, Ti
+        self.T = [base_predictor,  tagged_predictors[0], tagged_predictors[1],
+                                   tagged_predictors[2], tagged_predictors[3]]
+
+        init_basic_vars(self, num_state_bits, init_state_val, num_entries)
 
 class TaggedTable:
     def __init__(self, num_state_bits, init_state_val, tag_width, num_entries):
-        self.counters = [StateCounter(num_state_bits, init_state_val)
+        self.counters = [PredictorCounter(num_state_bits, init_state_val)
                 for i in range(num_entries)]
         self.tags = [0 for i in range(num_entries)]
-        self.useful_bits = [StateCounter()]
-
+        self.useful_bits = [StateCounter(2, 0) for i in  range(num_entries)]
 
 def mux2(x, y, s):
     return x if s is 0 else y
@@ -243,6 +228,14 @@ def print_stats(predictor):
         #print("Hit rate:\t\t", '{0:.04f}'.format(self.good_predictions / (total - self.no_predictions) * 100), "%")
         print("Hit rate:\t\t", '{0:.04f}'.format(predictor.good_predictions / (total) * 100), "%")
         print("Miss rate:\t\t", '{0:.04f}'.format(predictor.mispredictions / total * 100), "%\n")
+
+def init_basic_vars(predictor, num_state_bits, init_state_val, pht_size):
+    predictor.num_state_bits = num_state_bits
+    predictor.init_state_val = init_state_val
+    predictor.pht_size = pht_size
+    predictor.mispredictions = 0
+    predictor.good_predictions = 0
+    predictor.no_predictions = 0
 
 def norm_branch(branch):
     return 1 if branch.rstrip() is 'T' else 0
