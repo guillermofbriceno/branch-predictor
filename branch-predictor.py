@@ -199,60 +199,135 @@ class TournamentPredictor:
         return type(self).__name__.rstrip()
 
 class TAGEPredictor:
-    def __init__(self, num_state_bits, init_state_val, num_entries):
-        base_predictor = OneLevel(num_state_bits, init_state_val, num_entries)
+    def __init__(self, num_state_bits, init_state_val, num_base_entries):
+        base_predictor = OneLevel(num_state_bits, init_state_val, num_base_entries)
 
         # Init tagged predictors specifying history lengths as geometric series
         tagged_predictors = []
-        a = 10
         for i in range (4):
-            tagged_predictors.append(TaggedTable(num_state_bits, init_state_val, 10, num_entries, a))
-            a = a * 2
+            tagged_predictors.append(TaggedTable(num_state_bits, init_state_val))
 
         self.T = [base_predictor,  tagged_predictors[0], tagged_predictors[1], #Predictor components, Ti
                                    tagged_predictors[2], tagged_predictors[3]]
 
         self.global_history_register = ShiftRegister(80)
-        init_basic_vars(self, num_state_bits, init_state_val, num_entries)
+        init_basic_vars(self, num_state_bits, init_state_val, num_base_entries)
+
+        self.count = 0
+        self.msb_flip = True
 
     def predict(self, pc, actual_branch):
         predictions = []
-        for i in range(5):
-            predictions.append(self.T[i].predict(pc, actual_branch))
+        tagged_predictors_index_tag = []
+        present_ghr_binstr = self.global_history_register.get_current_val_as_binstr()
 
+        # Base predictor 0
+        predictions.append(self.T[0].predict(pc, actual_branch))
+
+        # Tagged predictors 1-4
+        check_equal = []
+        tagged_predictors_index_tag = [index_tag_hash(pc, present_ghr_binstr, i) for i in range(1,5)]
+
+        for i in range(1,5):
+            predictions.append(self.T[i].predict(tagged_predictors_index_tag[i - 1][0], actual_branch))
+            equal = self.T[i].get_tag_at(tagged_predictors_index_tag[i - 1][0]) == tagged_predictors_index_tag[i - 1][1]
+            check_equal.append(equal)
+
+        provider_index = 0
+        for i in range(4,0,-1):
+            if check_equal[i - 1]:
+                overall_prediction = predictions[i]
+                provider_index = i
+                break
+        else:
+            overall_prediction = predictions[0]
+
+        altpred = 0
+        for i in range(provider_index,-1,-1):
+            if check_equal[i - 1]:
+                altpred = predictions[i]
+                break
+
+        #update useful counter
+        if (altpred != overall_prediction) & (provider_index != 0):
+            if overall_prediction == actual_branch:
+                self.T[provider_index].useful_bits[tagged_predictors_index_tag[provider_index][0]].was_taken()
+            elif overall_prediction is not None:
+                self.T[provider_index].useful_bits[tagged_predictors_index_tag[provider_index][0]].was_not_taken()
+
+        if overall_prediction == actual_branch:
+            self.good_predictions += 1
+            return
+        elif overall_prediction is not None:
+            self.mispredictions += 1
+
+            # Update Policy
+
+            if provider_index != 4:
+                for i in range(3,provider_index,-1):
+                    u_counter = self.T[i].useful_bits[tagged_predictors_index_tag[i][0]].state
+                    if u_counter == 0:
+                        self.T[i].tags[tagged_predictors_index_tag[i][0]] = tagged_predictors_index_tag[i][1]
+                        self.T[i].useful_bits[tagged_predictors_index_tag[i][0]].state = 2
+                        break
+                else:
+                    for tagged_component in self.T[1:]:
+                        for u_counter in tagged_component.useful_bits:
+                            u_counter.was_not_taken()
+
+        else:
+            self.no_predictions += 1
+
+        self.count += 1
+
+        if self.count == (256 * 1024):
+            if self.msb_flip:
+                for tagged_component in self.T[T:]:
+                    for u_counter in tagged_component.useful_bits:
+                        u_counter.state &= 1
+            else:
+                for tagged_component in self.T[T:]:
+                    for u_counter in tagged_component.useful_bits:
+                        u_counter.state &= 2
+
+            self.count = 0
+            msb_flip = not msb_flip
+
+    def get_method_type(self):
+        return type(self).__name__.rstrip()
 
 class TaggedTable:
-    def __init__(self, num_state_bits, init_state_val, num_entries):
-        self.hist_size = 10
+    def __init__(self, num_state_bits, init_state_val):
+        self.index_bits = 10
+        num_entries = 2**self.index_bits
         self.tag_width = 8
 
-        self.counters = [PredictorCounter(num_state_bits, init_state_val)
+        self.counters = [StateCounter(num_state_bits, init_state_val)
                 for i in range(num_entries)]
         self.tags = [0 for i in range(num_entries)]
         self.useful_bits = [StateCounter(2, 0) for i in  range(num_entries)]
 
+        offset = 0
         self.entries_numbits = math.frexp(num_entries)[1] - 1 
         self.cut_index_pc = [self.entries_numbits + offset, offset]
 
-    def predict(self, pc, actual_branch):
-        index = get_from_bitrange(self.cut_index_pc, pc)
+    def predict(self, index, actual_branch):
         prediction = self.counters[index].get_state()
 
         if actual_branch == 1:
-            self.counter[index].was_taken()
+            self.counters[index].was_taken()
         else:
-            self.counter[index].was_not_taken()
+            self.counters[index].was_not_taken()
 
+        #wrong
         if prediction == actual_branch:
             self.useful_bits[index].was_taken()
         elif prediction is not None:
             self.useful_bits[index].was_not_taken()
 
-
         return prediction
 
-    def get_tag(self, pc):
-        index = get_from_bitrange(self.cut_index_pc, pc)
+    def get_tag_at(self, index):
         return self.tags[index]
 
 def index_tag_hash(pc, ghr_binstr, comp):
@@ -265,24 +340,17 @@ def index_tag_hash(pc, ghr_binstr, comp):
 
     for i in range(1, 2**(comp - 1)):
         index_ghr ^= binstr_get_from_bitrange([(i+1)*10,i*10],ghr_binstr)
-        print("one")
 
     for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 8) ) ):
         tag_R1 ^= binstr_get_from_bitrange([(i+1)*8,i*8],ghr_binstr)
-        print("two")
 
     for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 7) ) ):
         tag_R2 ^= binstr_get_from_bitrange([(i+1)*7,i*7],ghr_binstr)
-        print("three")
 
     index = index_pc ^ index_ghr
     tag = tag_pc ^ tag_R1 ^ (tag_R2 << 1)
 
     return [index, tag]
-
-
-def mux2(x, y, s):
-    return x if s is 0 else y
 
 def print_stats(predictor):
         total = predictor.no_predictions + predictor.good_predictions + predictor.mispredictions
@@ -331,11 +399,9 @@ def main():
     #print(intag[0])
     #print(intag[1])
 
-
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-method", help="Prediction method", choices=[ 
-        'one-level','two-level-global','gshare','two-level-local', 'tournament'],required=True)
+        'one-level','two-level-global','gshare','two-level-local', 'tournament', 'tage'],required=True)
     parser.add_argument("-cbits", help="How many bits for the state counters",default=2,type=int,required=False)
     parser.add_argument("-cinit", help="Initial state counter value",default=0,type=int,required=False)
     parser.add_argument("-phtsize", help="Number of pattern history table entries",type=int,required=True)
@@ -347,7 +413,8 @@ def main():
             'two-level-global': TwoLevelGlobal,
             'gshare':           GShare,
             'two-level-local':  TwoLevelLocal,
-            'tournament':       TournamentPredictor
+            'tournament':       TournamentPredictor,
+            'tage':             TAGEPredictor
             }
 
     bp = methods[args.method](args.cbits, args.cinit, args.phtsize)
