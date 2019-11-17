@@ -3,6 +3,7 @@
 import sys
 import argparse
 import math
+import random
 
 class StateCounter:
     def __init__(self, bits, init_value):
@@ -61,7 +62,8 @@ class BranchPredictor:
         self.pht_numbits = math.frexp(pht_size)[1] - 1
         self.cut_pc = [self.pht_numbits + offset, offset]
         self.pattern_history_table = [PredictorCounter(num_state_bits, init_state_val) 
-                for i in range(pht_size)]
+                    for i in range(pht_size)]
+
 
         init_basic_vars(self, num_state_bits, init_state_val, pht_size)
 
@@ -88,7 +90,7 @@ class BranchPredictor:
 class OneLevel(BranchPredictor):
     def __init__(self, num_state_bits, init_state_val, pht_size):
         super().__init__(num_state_bits, init_state_val, pht_size)
-    
+
     def prediction_method(self, cutpc, actual_branch):
         pht_address = cutpc
         prediction = self.pattern_history_table[pht_address].get_state()
@@ -99,6 +101,25 @@ class OneLevel(BranchPredictor):
             self.pattern_history_table[pht_address].was_not_taken()
 
         return prediction
+
+class TAGEBimodalBase(BranchPredictor):
+    def __init__(self, num_state_bits, init_state_val, pht_size):
+        super().__init__(num_state_bits, init_state_val, pht_size)
+        self.pattern_history_table = [StateCounter(num_state_bits, init_state_val) 
+                    for i in range(pht_size)]
+
+    def prediction_method(self, cutpc, actual_branch):
+        pht_address = cutpc
+        prediction = self.pattern_history_table[pht_address].get_state()
+        return prediction
+
+    def update(self, pc, actual_branch):
+        cutpc = get_from_bitrange(self.cut_pc, pc)
+        pht_address = cutpc
+        if actual_branch is 1:
+            self.pattern_history_table[pht_address].was_taken()
+        elif actual_branch is 0:
+            self.pattern_history_table[pht_address].was_not_taken()
 
 class TwoLevelGlobal(BranchPredictor):
     def __init__(self, num_state_bits, init_state_val, pht_size):
@@ -200,7 +221,7 @@ class TournamentPredictor:
 
 class TAGEPredictor:
     def __init__(self, num_state_bits, init_state_val, num_base_entries):
-        base_predictor = OneLevel(num_state_bits, init_state_val, num_base_entries)
+        base_predictor = TAGEBimodalBase(num_state_bits, init_state_val, 4096)
 
         # Init tagged predictors specifying history lengths as geometric series
         tagged_predictors = []
@@ -241,39 +262,83 @@ class TAGEPredictor:
                 break
         else:
             overall_prediction = predictions[0]
-
+        
         altpred = 0
-        for i in range(provider_index,-1,-1):
+        altpred_provider_index = 0
+        for i in range(provider_index-1,0,-1):
             if check_equal[i - 1]:
                 altpred = predictions[i]
+                altpred_provider_index = i
                 break
+        else:
+            altpred = predictions[0]
+            altpred_provider_index = 0
+
+        #if altpred_provider_index == 1:
+        #    print("---")
+        #    print("actual_branch:", actual_branch)
+        #    print("predictions:", predictions)
+        #    print("check_equal:",check_equal)
+        #    print("provider_index:", provider_index)
+        #    print("overall_prediction", overall_prediction)
+        #    print("altpred", altpred)
+        #    print("altpred_provider_index", altpred_provider_index)
+        #    print("---")
+
+        if provider_index == 0:
+            self.T[0].update(pc, actual_branch)
+        else:
+            self.T[provider_index].update(tagged_predictors_index_tag[provider_index - 1][0], actual_branch)
 
         #update useful counter
         if (altpred != overall_prediction) & (provider_index != 0):
             if overall_prediction == actual_branch:
-                self.T[provider_index].useful_bits[tagged_predictors_index_tag[provider_index][0]].was_taken()
+                self.T[provider_index].useful_bits[tagged_predictors_index_tag[provider_index - 1][0]].was_taken()
             elif overall_prediction is not None:
-                self.T[provider_index].useful_bits[tagged_predictors_index_tag[provider_index][0]].was_not_taken()
+                self.T[provider_index].useful_bits[tagged_predictors_index_tag[provider_index - 1][0]].was_not_taken()
 
         if overall_prediction == actual_branch:
             self.good_predictions += 1
-            return
         elif overall_prediction is not None:
             self.mispredictions += 1
 
-            # Update Policy
+            # Replacement Policy
 
+            T_k_index = 0
+            T_j_index = 0
             if provider_index != 4:
-                for i in range(3,provider_index,-1):
-                    u_counter = self.T[i].useful_bits[tagged_predictors_index_tag[i][0]].state
+                for i in range(4,provider_index,-1):
+                    u_counter = self.T[i].useful_bits[tagged_predictors_index_tag[i-1][0]].state
                     if u_counter == 0:
-                        self.T[i].tags[tagged_predictors_index_tag[i][0]] = tagged_predictors_index_tag[i][1]
-                        self.T[i].useful_bits[tagged_predictors_index_tag[i][0]].state = 2
+                        T_k_index = i
                         break
                 else:
                     for tagged_component in self.T[1:]:
                         for u_counter in tagged_component.useful_bits:
                             u_counter.was_not_taken()
+
+
+            if T_k_index >= 1:
+                for i in range(T_k_index - 1, 0,-1):
+                    u_counter = self.T[i].useful_bits[tagged_predictors_index_tag[i-1][0]].state
+                    if u_counter == 0:
+                        T_j_index = i
+                        break
+                else:
+                    self.T[T_k_index].tags[tagged_predictors_index_tag[T_k_index-1][0]] = tagged_predictors_index_tag[T_k_index-1][1]
+                    self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state = 0
+                    self.T[T_k_index].counters[tagged_predictors_index_tag[T_k_index-1][0]].state = 4
+                
+                if T_j_index is not 0:
+                    rand_num = random.randint(1,3)
+                    if rand_num == 3:
+                        self.T[T_j_index].tags[tagged_predictors_index_tag[T_j_index-1][0]] = tagged_predictors_index_tag[T_j_index-1][1]
+                        self.T[T_j_index].useful_bits[tagged_predictors_index_tag[T_j_index-1][0]].state = 0
+                        self.T[T_j_index].counters[tagged_predictors_index_tag[T_j_index-1][0]].state = 4
+                    else:
+                        self.T[T_k_index].tags[tagged_predictors_index_tag[T_k_index-1][0]] = tagged_predictors_index_tag[T_k_index-1][1]
+                        self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state = 0
+                        self.T[T_k_index].counters[tagged_predictors_index_tag[T_k_index-1][0]].state = 4
 
         else:
             self.no_predictions += 1
@@ -282,16 +347,18 @@ class TAGEPredictor:
 
         if self.count == (256 * 1024):
             if self.msb_flip:
-                for tagged_component in self.T[T:]:
+                for tagged_component in self.T[1:]:
                     for u_counter in tagged_component.useful_bits:
                         u_counter.state &= 1
             else:
-                for tagged_component in self.T[T:]:
+                for tagged_component in self.T[1:]:
                     for u_counter in tagged_component.useful_bits:
                         u_counter.state &= 2
 
             self.count = 0
-            msb_flip = not msb_flip
+            self.msb_flip = not self.msb_flip
+
+        self.global_history_register.shift_in(actual_branch)
 
     def get_method_type(self):
         return type(self).__name__.rstrip()
@@ -313,19 +380,13 @@ class TaggedTable:
 
     def predict(self, index, actual_branch):
         prediction = self.counters[index].get_state()
+        return prediction
 
+    def update(self, index, actual_branch):
         if actual_branch == 1:
             self.counters[index].was_taken()
         else:
             self.counters[index].was_not_taken()
-
-        #wrong
-        if prediction == actual_branch:
-            self.useful_bits[index].was_taken()
-        elif prediction is not None:
-            self.useful_bits[index].was_not_taken()
-
-        return prediction
 
     def get_tag_at(self, index):
         return self.tags[index]
@@ -364,6 +425,9 @@ def print_stats(predictor):
         #print("Hit rate:\t\t", '{0:.04f}'.format(self.good_predictions / (total - self.no_predictions) * 100), "%")
         print("Hit rate:\t\t", '{0:.04f}'.format(predictor.good_predictions / (total) * 100), "%")
         print("Miss rate:\t\t", '{0:.04f}'.format(predictor.mispredictions / total * 100), "%\n")
+
+        print(predictor.global_history_register.get_current_val_as_binstr())
+
 
 def init_basic_vars(predictor, num_state_bits, init_state_val, pht_size):
     predictor.num_state_bits = num_state_bits
