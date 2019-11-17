@@ -264,33 +264,19 @@ class TAGEPredictor:
             overall_prediction = predictions[0]
         
         altpred = 0
-        altpred_provider_index = 0
         for i in range(provider_index-1,0,-1):
             if check_equal[i - 1]:
                 altpred = predictions[i]
-                altpred_provider_index = i
                 break
         else:
             altpred = predictions[0]
-            altpred_provider_index = 0
-
-        #if altpred_provider_index == 1:
-        #    print("---")
-        #    print("actual_branch:", actual_branch)
-        #    print("predictions:", predictions)
-        #    print("check_equal:",check_equal)
-        #    print("provider_index:", provider_index)
-        #    print("overall_prediction", overall_prediction)
-        #    print("altpred", altpred)
-        #    print("altpred_provider_index", altpred_provider_index)
-        #    print("---")
 
         if provider_index == 0:
             self.T[0].update(pc, actual_branch)
         else:
             self.T[provider_index].update(tagged_predictors_index_tag[provider_index - 1][0], actual_branch)
 
-        #update useful counter
+        # Update useful counter
         if (altpred != overall_prediction) & (provider_index != 0):
             if overall_prediction == actual_branch:
                 self.T[provider_index].useful_bits[tagged_predictors_index_tag[provider_index - 1][0]].was_taken()
@@ -303,7 +289,6 @@ class TAGEPredictor:
             self.mispredictions += 1
 
             # Replacement Policy
-
             T_k_index = 0
             T_j_index = 0
             if provider_index != 4:
@@ -316,7 +301,6 @@ class TAGEPredictor:
                     for tagged_component in self.T[1:]:
                         for u_counter in tagged_component.useful_bits:
                             u_counter.was_not_taken()
-
 
             if T_k_index >= 1:
                 for i in range(T_k_index - 1, 0,-1):
@@ -340,6 +324,24 @@ class TAGEPredictor:
                         self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state = 0
                         self.T[T_k_index].counters[tagged_predictors_index_tag[T_k_index-1][0]].state = 4
 
+            #if (T_k_index is not 0) and not (check_equal == [False, False, False, False]):
+            #    print("---")
+            #    print("actual_branch:", actual_branch)
+            #    print("predictions:", predictions)
+            #    print("check_equal:",check_equal)
+            #    print("provider_index:", provider_index)
+            #    print("overall_prediction", overall_prediction)
+            #    print("altpred", altpred)
+            #    print("T_k_index:",T_k_index)
+            #    if T_k_index is not 0:
+            #        print("T_k useful state:", self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state)
+            #    print("T_j_index:",T_j_index)
+            #    if T_j_index is not 0:
+            #        print("T_j useful state:", self.T[T_j_index].useful_bits[tagged_predictors_index_tag[T_j_index-1][0]].state)
+
+            #    #print("altpred_provider_index", altpred_provider_index)
+            #    print("---")
+
         else:
             self.no_predictions += 1
 
@@ -357,6 +359,7 @@ class TAGEPredictor:
 
             self.count = 0
             self.msb_flip = not self.msb_flip
+
 
         self.global_history_register.shift_in(actual_branch)
 
@@ -456,13 +459,6 @@ def binstr_get_from_bitrange(bit_range, binary_string):
     return 0 if left_bit == right_bit else int(cut_string, 2)
 
 def main():
-
-    #pc = 135051251
-    #ghr_binstr = "10110101011011011101101101010100111101010011010111111101010100111101011111111101"
-    #intag = index_tag_hash(pc, ghr_binstr, 1)
-    #print(intag[0])
-    #print(intag[1])
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-method", help="Prediction method", choices=[ 
         'one-level','two-level-global','gshare','two-level-local', 'tournament', 'tage'],required=True)
