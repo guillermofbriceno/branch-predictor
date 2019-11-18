@@ -30,7 +30,7 @@ The script `norm_traces.py` is used to isolate and format the conditional branch
 
 ### Notices
 
-The TAGE predictor is implemented with fixed table and counter sizes except for the base bimodal table, whose counter size can be set with the `-cbits` option.
+The TAGE predictor is implemented with fixed table and counter sizes except for the base bimodal table, whose counter size can be set with the `-cbits` option. Setting the other options has no effect.
 
 The Tournament predictor uses a meta-predictor to choose between gshare and one-level predictions. The table and counter sizes for the components are set equally according to the `-cbits`, `-cinit`, and `-phtsize` options.
 
