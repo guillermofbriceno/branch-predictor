@@ -133,28 +133,6 @@ class TaggedTable:
     def get_tag_at(self, index):
         return self.tags[index]
 
-def index_tag_hash(pc, ghr_binstr, comp):
-    index_pc = get_from_bitrange([10,0], pc) ^ get_from_bitrange([20,10], pc)
-    index_ghr = binstr_get_from_bitrange([10,0],ghr_binstr)
-
-    tag_pc = get_from_bitrange([8,0], pc)
-    tag_R1 = binstr_get_from_bitrange([8,0], ghr_binstr)
-    tag_R2 = binstr_get_from_bitrange([7,0], ghr_binstr)
-
-    for i in range(1, 2**(comp - 1)):
-        index_ghr ^= binstr_get_from_bitrange([(i+1)*10,i*10],ghr_binstr)
-
-    for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 8) ) ):
-        tag_R1 ^= binstr_get_from_bitrange([(i+1)*8,i*8],ghr_binstr)
-
-    for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 7) ) ):
-        tag_R2 ^= binstr_get_from_bitrange([(i+1)*7,i*7],ghr_binstr)
-
-    index = index_pc ^ index_ghr
-    tag = tag_pc ^ tag_R1 ^ (tag_R2 << 1)
-
-    return [index, tag]
-
 def print_stats(predictor):
         total = predictor.no_predictions + predictor.good_predictions + predictor.mispredictions
         print("\n\n\n\t\t---Sim Result---")

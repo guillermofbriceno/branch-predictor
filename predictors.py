@@ -144,7 +144,7 @@ class TAGEPredictor:
 
         # Tagged predictors 1-4
         check_equal = []
-        tagged_predictors_index_tag = [index_tag_hash(pc, present_ghr_binstr, i) for i in range(1,5)]
+        tagged_predictors_index_tag = [self.index_tag_hash(pc, present_ghr_binstr, i) for i in range(1,5)]
 
         for i in range(1,5):
             predictions.append(self.T[i].predict(tagged_predictors_index_tag[i - 1][0], actual_branch))
@@ -242,6 +242,28 @@ class TAGEPredictor:
             self.msb_flip = not self.msb_flip
         
         self.global_history_register.shift_in(actual_branch)
+
+    def index_tag_hash(self, pc, ghr_binstr, comp):
+        index_pc = get_from_bitrange([10,0], pc) ^ get_from_bitrange([20,10], pc)
+        index_ghr = binstr_get_from_bitrange([10,0],ghr_binstr)
+
+        tag_pc = get_from_bitrange([8,0], pc)
+        tag_R1 = binstr_get_from_bitrange([8,0], ghr_binstr)
+        tag_R2 = binstr_get_from_bitrange([7,0], ghr_binstr)
+
+        for i in range(1, 2**(comp - 1)):
+            index_ghr ^= binstr_get_from_bitrange([(i+1)*10,i*10],ghr_binstr)
+
+        for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 8) ) ):
+            tag_R1 ^= binstr_get_from_bitrange([(i+1)*8,i*8],ghr_binstr)
+
+        for i in range(1, math.floor( ( (2**(comp - 1) * 10) / 7) ) ):
+            tag_R2 ^= binstr_get_from_bitrange([(i+1)*7,i*7],ghr_binstr)
+
+        index = index_pc ^ index_ghr
+        tag = tag_pc ^ tag_R1 ^ (tag_R2 << 1)
+
+        return [index, tag]
 
     def get_method_type(self):
         return type(self).__name__.rstrip()
