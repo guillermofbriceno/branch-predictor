@@ -66,6 +66,7 @@ class BranchPredictor:
 
 
         init_basic_vars(self, num_state_bits, init_state_val, pht_size)
+        self.count = 0
 
     def predict(self, pc, actual_branch):
         cutpc = get_from_bitrange(self.cut_pc, pc)
@@ -142,7 +143,6 @@ class TwoLevelGlobal(BranchPredictor):
     
     def addressing_method(self, cutpc, actual_branch):
         return self.global_branch_history.get_current_val()
-
 
 class GShare(TwoLevelGlobal):
     def __init__(self, num_state_bits, init_state_val, pht_size):
@@ -223,7 +223,7 @@ class TAGEPredictor:
     def __init__(self, num_state_bits, init_state_val, num_base_entries):
         base_predictor = TAGEBimodalBase(num_state_bits, init_state_val, 4096)
 
-        # Init tagged predictors specifying history lengths as geometric series
+        # Init tagged predictors
         tagged_predictors = []
         for i in range (4):
             tagged_predictors.append(TaggedTable(num_state_bits, init_state_val))
@@ -264,9 +264,11 @@ class TAGEPredictor:
             overall_prediction = predictions[0]
         
         altpred = 0
+        altpred_provider_index = 0
         for i in range(provider_index-1,0,-1):
             if check_equal[i - 1]:
                 altpred = predictions[i]
+                altpred_provider_index = i
                 break
         else:
             altpred = predictions[0]
@@ -324,24 +326,6 @@ class TAGEPredictor:
                         self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state = 0
                         self.T[T_k_index].counters[tagged_predictors_index_tag[T_k_index-1][0]].state = 4
 
-            #if (T_k_index is not 0) and not (check_equal == [False, False, False, False]):
-            #    print("---")
-            #    print("actual_branch:", actual_branch)
-            #    print("predictions:", predictions)
-            #    print("check_equal:",check_equal)
-            #    print("provider_index:", provider_index)
-            #    print("overall_prediction", overall_prediction)
-            #    print("altpred", altpred)
-            #    print("T_k_index:",T_k_index)
-            #    if T_k_index is not 0:
-            #        print("T_k useful state:", self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state)
-            #    print("T_j_index:",T_j_index)
-            #    if T_j_index is not 0:
-            #        print("T_j useful state:", self.T[T_j_index].useful_bits[tagged_predictors_index_tag[T_j_index-1][0]].state)
-
-            #    #print("altpred_provider_index", altpred_provider_index)
-            #    print("---")
-
         else:
             self.no_predictions += 1
 
@@ -359,8 +343,7 @@ class TAGEPredictor:
 
             self.count = 0
             self.msb_flip = not self.msb_flip
-
-
+        
         self.global_history_register.shift_in(actual_branch)
 
     def get_method_type(self):
@@ -427,10 +410,12 @@ def print_stats(predictor):
         print("Total:\t\t\t", total)
         #print("Hit rate:\t\t", '{0:.04f}'.format(self.good_predictions / (total - self.no_predictions) * 100), "%")
         print("Hit rate:\t\t", '{0:.04f}'.format(predictor.good_predictions / (total) * 100), "%")
-        print("Miss rate:\t\t", '{0:.04f}'.format(predictor.mispredictions / total * 100), "%\n")
+        print("Miss rate:\t\t", '{0:.04f}'.format((predictor.mispredictions + predictor.no_predictions) / total * 100), "%\n")
 
-        print(predictor.global_history_register.get_current_val_as_binstr())
-
+        #disp_big_list(predictor.T[1].tags)
+        #disp_big_list(predictor.T[2].tags)
+        #disp_big_list(predictor.T[3].tags)
+        #disp_big_list(predictor.T[4].tags)
 
 def init_basic_vars(predictor, num_state_bits, init_state_val, pht_size):
     predictor.num_state_bits = num_state_bits
@@ -445,7 +430,7 @@ def norm_branch(branch):
 
 def get_from_bitrange(bit_range, dec_val):
     left_bit, right_bit = bit_range
-    binary_string = "{0:032b}".format(int(dec_val))
+    binary_string = "{0:064b}".format(int(dec_val))
     left_bit = len(binary_string) - left_bit
     right_bit = len(binary_string) - right_bit
     cut_string = binary_string[left_bit:right_bit]
@@ -457,6 +442,17 @@ def binstr_get_from_bitrange(bit_range, binary_string):
     right_bit = len(binary_string) - right_bit
     cut_string = binary_string[left_bit:right_bit]
     return 0 if left_bit == right_bit else int(cut_string, 2)
+
+def disp_big_list(lst, rows = 50):
+    table_list = [[] for _ in range(rows)]
+    
+    for index, item in enumerate(lst):
+        row_index = index % rows
+        table_list[row_index].append("%6d" % item)
+
+    table_str = "\n".join(["\t".join(i) for i in table_list])
+    
+    print(table_str)
 
 def main():
     parser = argparse.ArgumentParser()
