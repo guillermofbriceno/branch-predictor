@@ -2,12 +2,12 @@
 
 Implements the following prediction methods:
 
-        *TAGE
-        *Tournament
-        *gshare
-        *Two-Level Global
-        *Two-Level Local
-        *One-Level 
+*TAGE
+*Tournament
+*gshare
+*Two-Level Global
+*Two-Level Local
+*One-Level 
 
 and prints misprediction information.
 
@@ -26,7 +26,7 @@ Use `./branch_predictor.py -h` for a detailed list of options. Example usage:
 
 `./branch_predictor.py -method gshare -cbits 2 -cinit 0 -phtsize 1024 -trace <trace file>`
 
-The script `norm_traces.py` is used to isolate and format the conditional branches extracted using a PIN tool extractor [here](https://github.com/mbaharan/branchExtractor).
+The script `format_trace.py` is used to isolate and format the conditional branches extracted using a PIN tool extractor [here](https://github.com/mbaharan/branchExtractor).
 
 ### Notices
 
