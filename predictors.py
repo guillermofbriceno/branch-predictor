@@ -118,7 +118,7 @@ class TournamentPredictor:
 
 class TAGEPredictor:
     def __init__(self, num_state_bits, init_state_val, num_base_entries):
-        base_predictor = TAGEBimodalBase(num_state_bits, init_state_val, 4096)
+        base_predictor = TAGEBimodalBase(2, init_state_val, 4096)
 
         # Init tagged predictors
         tagged_predictors = []
@@ -191,13 +191,14 @@ class TAGEPredictor:
             T_k_index = 0
             T_j_index = 0
             if provider_index != 4:
-                for i in range(4,provider_index,-1):
+                #for i in range(4,provider_index,-1):
+                for i in range(provider_index+1,5):
                     u_counter = self.T[i].useful_bits[tagged_predictors_index_tag[i-1][0]].state
                     if u_counter == 0:
                         T_k_index = i
                         break
                 else:
-                    for tagged_component in self.T[1:]:
+                    for tagged_component in self.T[1: (provider_index - 1)]:
                         for u_counter in tagged_component.useful_bits:
                             u_counter.was_not_taken()
 
@@ -212,16 +213,19 @@ class TAGEPredictor:
                     self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state = 0
                     self.T[T_k_index].counters[tagged_predictors_index_tag[T_k_index-1][0]].state = 4
                 
-                if T_j_index is not 0:
+                if T_j_index != 0:
                     rand_num = random.randint(1,3)
                     if rand_num == 3:
                         self.T[T_j_index].tags[tagged_predictors_index_tag[T_j_index-1][0]] = tagged_predictors_index_tag[T_j_index-1][1]
                         self.T[T_j_index].useful_bits[tagged_predictors_index_tag[T_j_index-1][0]].state = 0
                         self.T[T_j_index].counters[tagged_predictors_index_tag[T_j_index-1][0]].state = 4
+
                     else:
+                        
                         self.T[T_k_index].tags[tagged_predictors_index_tag[T_k_index-1][0]] = tagged_predictors_index_tag[T_k_index-1][1]
                         self.T[T_k_index].useful_bits[tagged_predictors_index_tag[T_k_index-1][0]].state = 0
                         self.T[T_k_index].counters[tagged_predictors_index_tag[T_k_index-1][0]].state = 4
+
 
         else:
             self.no_predictions += 1
@@ -244,10 +248,11 @@ class TAGEPredictor:
         self.global_history_register.shift_in(actual_branch)
 
     def index_tag_hash(self, pc, ghr_binstr, comp):
-        index_pc = get_from_bitrange([10,0], pc) ^ get_from_bitrange([20,10], pc)
+        pc_off = 4
+        index_pc = get_from_bitrange([10+pc_off,0+pc_off], pc) ^ get_from_bitrange([20+pc_off,10+pc_off], pc)
         index_ghr = binstr_get_from_bitrange([10,0],ghr_binstr)
 
-        tag_pc = get_from_bitrange([8,0], pc)
+        tag_pc = get_from_bitrange([8+pc_off,0+pc_off], pc)
         tag_R1 = binstr_get_from_bitrange([8,0], ghr_binstr)
         tag_R2 = binstr_get_from_bitrange([7,0], ghr_binstr)
 

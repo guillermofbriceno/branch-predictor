@@ -4,13 +4,13 @@ import math
 class StateCounter:
     def __init__(self, bits, init_value):
         self.bits = bits
-        self.max_val = 2**self.bits
+        self.max_val = 2**self.bits - 1
         self.init_value = init_value
 
         self.state = self.init_value
 
     def was_taken(self):
-        if (self.state + 1) >= self.max_val:
+        if self.state == self.max_val:
             return
         self.state += 1
 
@@ -20,7 +20,7 @@ class StateCounter:
         self.state -= 1
 
     def get_state(self):
-        if self.state >= (self.max_val / 2):
+        if self.state >= ((self.max_val + 1) / 2):
             return 1
         else:
             return 0
@@ -30,9 +30,9 @@ class PredictorCounter(StateCounter):
         super().__init__(bits, init_value)
 
     def get_state(self):
-        if self.state > (self.max_val / 2):
+        if self.state > ((self.max_val + 1) / 2):
             return 1    # Taken
-        if self.state < ((self.max_val / 2) - 1):
+        if self.state < (((self.max_val + 1)/ 2) - 1):
             return 0    # Not Taken
         else:
             return None # No Prediction (Weak)
@@ -57,9 +57,8 @@ class BranchPredictor:
         offset = 0
         self.pht_numbits = math.frexp(pht_size)[1] - 1
         self.cut_pc = [self.pht_numbits + offset, offset]
-        self.pattern_history_table = [PredictorCounter(num_state_bits, init_state_val) 
+        self.pattern_history_table = [StateCounter(num_state_bits, init_state_val) 
                     for i in range(pht_size)]
-
 
         init_basic_vars(self, num_state_bits, init_state_val, pht_size)
         self.count = 0
@@ -99,11 +98,10 @@ class TAGEBimodalBase(BranchPredictor):
     def update(self, pc, actual_branch):
         cutpc = get_from_bitrange(self.cut_pc, pc)
         pht_address = cutpc
-        if actual_branch is 1:
+        if actual_branch == 1:
             self.pattern_history_table[pht_address].was_taken()
-        elif actual_branch is 0:
+        elif actual_branch == 0:
             self.pattern_history_table[pht_address].was_not_taken()
-
 
 class TaggedTable:
     def __init__(self, num_state_bits, init_state_val):
@@ -116,10 +114,6 @@ class TaggedTable:
         self.tags = [0 for i in range(num_entries)]
         self.useful_bits = [StateCounter(2, 0) for i in  range(num_entries)]
 
-        offset = 0
-        self.entries_numbits = math.frexp(num_entries)[1] - 1 
-        self.cut_index_pc = [self.entries_numbits + offset, offset]
-
     def predict(self, index, actual_branch):
         prediction = self.counters[index].get_state()
         return prediction
@@ -127,7 +121,7 @@ class TaggedTable:
     def update(self, index, actual_branch):
         if actual_branch == 1:
             self.counters[index].was_taken()
-        else:
+        elif actual_branch == 0:
             self.counters[index].was_not_taken()
 
     def get_tag_at(self, index):
@@ -144,7 +138,7 @@ def print_stats(predictor):
         print("Total:\t\t\t", total)
         #print("Hit rate:\t\t", '{0:.04f}'.format(self.good_predictions / (total - self.no_predictions) * 100), "%")
         print("Hit rate:\t\t", '{0:.04f}'.format(predictor.good_predictions / (total) * 100), "%")
-        print("Miss rate:\t\t", '{0:.04f}'.format((predictor.mispredictions + predictor.no_predictions) / total * 100), "%\n")
+        print("MP/KI:\t\t\t", '{0:.04f}'.format((predictor.mispredictions + predictor.no_predictions) / total * 1000), '\n')
 
         #disp_big_list(predictor.T[1].tags)
         #disp_big_list(predictor.T[2].tags)
