@@ -57,7 +57,7 @@ class BranchPredictor:
         offset = 0
         self.pht_numbits = math.frexp(pht_size)[1] - 1
         self.cut_pc = [self.pht_numbits + offset, offset]
-        self.pattern_history_table = [StateCounter(num_state_bits, init_state_val) 
+        self.pattern_history_table = [PredictorCounter(num_state_bits, init_state_val) 
                     for i in range(pht_size)]
 
         init_basic_vars(self, num_state_bits, init_state_val, pht_size)
