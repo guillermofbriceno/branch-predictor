@@ -2,12 +2,12 @@
 
 Implements the following prediction methods:
 
-*TAGE
-*Tournament
-*gshare
-*Two-Level Global
-*Two-Level Local
-*One-Level 
+* TAGE
+* Tournament
+* gshare
+* Two-Level Global
+* Two-Level Local
+* One-Level 
 
 and prints misprediction information.
 
